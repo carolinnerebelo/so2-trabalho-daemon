@@ -58,7 +58,35 @@ void busca_proc() {
             }
         }
     }
+
+    fprintf(log_file, "\n");
     closedir(dir);
+}
+
+void busca_pipe() {
+    // popen cria um filho, executa o comando e abre um pipe de leitura ("r")
+    // usamos -eo para forçar o ps a imprimir apenas as colunas exatas que precisamos
+    FILE *fp = popen("ps -eo pid,ppid,stat,comm", "r");
+    if (fp == NULL) return;
+
+    char line[256];
+
+    fgets(line, sizeof(line), fp);
+
+    int pid, ppid;
+    char state[10];
+    char comm[256];
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (sscanf(line, "%d %d %9s %255s", &pid, &ppid, state, comm) == 4) {
+            if (state[0] == 'Z') {
+                fprintf(log_file, "%d\t%d\t%s\n", pid, ppid, comm);
+            }
+        }
+    }
+
+    fprintf(log_file, "\n");
+    pclose(fp);
 }
 
 int main(int argc, char *argv[]) {
@@ -122,7 +150,12 @@ int main(int argc, char *argv[]) {
         fprintf(log_file, "PID\tPPID\tNome do Programa\n");
         fprintf(log_file, "==========================================\n");
 
-        busca_proc();
+        if (usa_pipe == 1) {
+            busca_pipe();
+        } else {
+            busca_proc();
+        }
+
         fflush(log_file);
     }
 
