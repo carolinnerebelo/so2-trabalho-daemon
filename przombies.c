@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -29,6 +31,19 @@ int main(int argc, char *argv[]) {
     }
 
     printf ("Iniciando daemon: intervalo de %d segundos, metodo %s.\n", n, usa_pipe ? "ps via pipe" : "diretorio /proc");
+
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        // Se o fork falhar (retornar -1), encerramos a execução com erro
+        fprintf(stderr, "Erro ao criar o processo daemon.\n");
+        exit(1);
+    }
+
+    if (pid > 0) {
+        // O pai recebe um PID > 0. Ele chama exit(0) para finalizar e liberar o terminal.
+        exit(0);
+    }
     
     return 0;
 }
