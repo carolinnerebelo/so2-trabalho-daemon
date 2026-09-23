@@ -3,6 +3,18 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <signal.h>
+
+FILE *log_file = NULL;
+
+void trata_sigterm(int sig) {
+    if (log_file != NULL) {
+        fprintf(log_file, "=== Daemon encerrado com seguranca (Sinal %d) ===\n", sig);
+        fclose(log_file);
+    }
+
+    exit(0);
+}
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -44,6 +56,13 @@ int main(int argc, char *argv[]) {
         // O pai recebe um PID > 0. Ele chama exit(0) para finalizar e liberar o terminal.
         exit(0);
     }
-    
+
+    for (int i = 1; i <= 31; i++) {
+        if (i != SIGKILL && i != SIGSTOP && i != SIGTERM) {
+            signal(i, SIG_IGN);
+        }
+    }
+
+    signal(SIGTERM, trata_sigterm);
     return 0;
 }
