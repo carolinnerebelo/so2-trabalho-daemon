@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <dirent.h>
+#include <ctype.h>
 
 FILE *log_file = NULL;
 
@@ -14,6 +16,49 @@ void trata_sigterm(int sig) {
     }
 
     exit(0);
+}
+
+// Função auxiliar para verificar se uma string contém apenas números. Vamos usá-la para verificar se o nome do diretório é um número (se for, é o diretório de um processo)
+int is_numeric(const char *str) {
+    while (*str) {
+        if (!isdigit(*str)) return 0;
+        str++;
+    }
+    return 1;
+}
+
+// Busca varrendo o diretório /proc
+void busca_proc() {
+    DIR *dir = opendir("/proc");
+    struct dirent *entry;
+    char path[512];
+
+    if (dir == NULL) return;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (is_numeric(entry->d_name)) {
+            // Monta o caminho exato para o arquivo stat do processo
+            snprintf(path, sizeof(path), "/proc/%s/stat", entry->d_name);
+            FILE *f = fopen(path, "r");
+
+            if (f != NULL) {
+                int pid, ppid;
+                char comm[256];
+                char state;
+
+                // O arquivo stat contém os dados na ordem: PID Nome Estado PPID
+                // Lemos essas 4 primeiras informações
+                if (fscanf(f, "%d (%[^)]) %c %d", &pid, comm, &state, &ppid) == 4) {
+                    if (state == 'Z') {
+                        fprintf(log_file, "%d\t%d\t%s\n", pid, ppid, comm);
+                    }
+                }
+
+                fclose(f);
+            }
+        }
+    }
+    closedir(dir);
 }
 
 int main(int argc, char *argv[]) {
@@ -76,9 +121,10 @@ int main(int argc, char *argv[]) {
 
         fprintf(log_file, "PID\tPPID\tNome do Programa\n");
         fprintf(log_file, "==========================================\n");
+
+        busca_proc();
+        fflush(log_file);
     }
 
-
-    fflush(log_file);
     return 0;
 }
