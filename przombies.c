@@ -64,5 +64,21 @@ int main(int argc, char *argv[]) {
     }
 
     signal(SIGTERM, trata_sigterm);
+
+    log_file = fopen("zombies.log", "a");
+
+    if (log_file == NULL) {
+        exit(1);
+    }
+
+    while (1) {
+        sleep(n);
+
+        fprintf(log_file, "PID\tPPID\tNome do Programa\n");
+        fprintf(log_file, "==========================================\n");
+    }
+
+
+    fflush(log_file);
     return 0;
 }
