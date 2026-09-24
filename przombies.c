@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,85 +10,10 @@
 
 FILE *log_file = NULL;
 
-void trata_sigterm(int sig) {
-    if (log_file != NULL) {
-        fprintf(log_file, "=== Daemon encerrado com seguranca (Sinal %d) ===\n", sig);
-        fclose(log_file);
-    }
-
-    exit(0);
-}
-
-// Função auxiliar para verificar se uma string contém apenas números. Vamos usá-la para verificar se o nome do diretório é um número (se for, é o diretório de um processo)
-int is_numeric(const char *str) {
-    while (*str) {
-        if (!isdigit(*str)) return 0;
-        str++;
-    }
-    return 1;
-}
-
-// Busca varrendo o diretório /proc
-void busca_proc() {
-    DIR *dir = opendir("/proc");
-    struct dirent *entry;
-    char path[512];
-
-    if (dir == NULL) return;
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (is_numeric(entry->d_name)) {
-            // Monta o caminho exato para o arquivo stat do processo
-            snprintf(path, sizeof(path), "/proc/%s/stat", entry->d_name);
-            FILE *f = fopen(path, "r");
-
-            if (f != NULL) {
-                int pid, ppid;
-                char comm[256];
-                char state;
-
-                // O arquivo stat contém os dados na ordem: PID Nome Estado PPID
-                // Lemos essas 4 primeiras informações
-                if (fscanf(f, "%d (%[^)]) %c %d", &pid, comm, &state, &ppid) == 4) {
-                    if (state == 'Z') {
-                        fprintf(log_file, "%d\t%d\t%s\n", pid, ppid, comm);
-                    }
-                }
-
-                fclose(f);
-            }
-        }
-    }
-
-    fprintf(log_file, "\n");
-    closedir(dir);
-}
-
-void busca_pipe() {
-    // popen cria um filho, executa o comando e abre um pipe de leitura ("r")
-    // usamos -eo para forçar o ps a imprimir apenas as colunas exatas que precisamos
-    FILE *fp = popen("ps -eo pid,ppid,stat,comm", "r");
-    if (fp == NULL) return;
-
-    char line[256];
-
-    fgets(line, sizeof(line), fp);
-
-    int pid, ppid;
-    char state[10];
-    char comm[256];
-
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        if (sscanf(line, "%d %d %9s %255s", &pid, &ppid, state, comm) == 4) {
-            if (state[0] == 'Z') {
-                fprintf(log_file, "%d\t%d\t%s\n", pid, ppid, comm);
-            }
-        }
-    }
-
-    fprintf(log_file, "\n");
-    pclose(fp);
-}
+void trata_sigterm(int sig);
+int is_numeric(const char *str);
+int busca_proc();
+int busca_pipe();
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -127,6 +53,8 @@ int main(int argc, char *argv[]) {
 
     if (pid > 0) {
         // O pai recebe um PID > 0. Ele chama exit(0) para finalizar e liberar o terminal.
+        printf("Iniciando Daemon przombies com PID = %d\n", pid);
+        printf("Para encerrar o daemon, rode: kill -TERM %d\n", pid);
         exit(0);
     }
 
@@ -144,20 +72,112 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    while (1) {
-        sleep(n);
+    fprintf(log_file, "PID\tPPID\tNome do Programa\n");
+    fprintf(log_file, "==========================================\n");
+    fflush(log_file);
 
-        fprintf(log_file, "PID\tPPID\tNome do Programa\n");
-        fprintf(log_file, "==========================================\n");
+    while (1) {
+
+        sleep(n);
+        int count = 0;
 
         if (usa_pipe == 1) {
-            busca_pipe();
+            count = busca_pipe();
         } else {
-            busca_proc();
+            count = busca_proc();
         }
 
-        fflush(log_file);
+        if (count > 0) {
+            fprintf(log_file, "==========================================\n");
+            fflush(log_file);
+        } else {
+            fprintf(log_file, "Nenhum processo zombie encontrado.\n");
+        }
     }
 
     return 0;
+}
+
+void trata_sigterm(int sig) {
+    if (log_file != NULL) {
+        fprintf(log_file, "=== Daemon encerrado com seguranca (Sinal %d) ===\n", sig);
+        fclose(log_file);
+    }
+
+    exit(0);
+}
+
+// Função auxiliar para verificar se uma string contém apenas números. Vamos usá-la para verificar se o nome do diretório é um número (se for, é o diretório de um processo)
+int is_numeric(const char *str) {
+    while (*str) {
+        if (!isdigit(*str)) return 0;
+        str++;
+    }
+    return 1;
+}
+
+// Busca varrendo o diretório /proc
+int busca_proc() {
+    DIR *dir = opendir("/proc");
+    struct dirent *entry;
+    char path[512];
+    int count = 0;
+
+    if (dir == NULL) return 0;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (is_numeric(entry->d_name)) {
+            // Monta o caminho exato para o arquivo stat do processo
+            snprintf(path, sizeof(path), "/proc/%s/stat", entry->d_name);
+            FILE *f = fopen(path, "r");
+
+            if (f != NULL) {
+                int pid, ppid;
+                char comm[256];
+                char state;
+
+                // O arquivo stat contém os dados na ordem: PID Nome Estado PPID
+                // Lemos essas 4 primeiras informações
+                if (fscanf(f, "%d (%[^)]) %c %d", &pid, comm, &state, &ppid) == 4) {
+                    if (state == 'Z') {
+                        fprintf(log_file, "%d\t%d\t%s\n", pid, ppid, comm);
+                        count++;
+                    }
+                }
+
+                fclose(f);
+            }
+        }
+    }
+
+    closedir(dir);
+    return count;
+}
+
+int busca_pipe() {
+    // popen executa o comando e abre um pipe de leitura ("r")
+    // usamos -eo para forçar o ps a imprimir apenas as colunas exatas que precisamos
+    FILE *fp = popen("ps -eo pid,ppid,stat,comm", "r");
+    if (fp == NULL) return 0;
+
+    char line[256];
+
+    if (fgets(line, sizeof(line), fp) != NULL) {}
+
+    int pid, ppid;
+    char state[10];
+    char comm[256];
+    int count = 0;
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (sscanf(line, "%d %d %9s %255s", &pid, &ppid, state, comm) == 4) {
+            if (state[0] == 'Z') {
+                fprintf(log_file, "%d\t%d\t%s\n", pid, ppid, comm);
+                count++;
+            }
+        }
+    }
+
+    pclose(fp);
+    return count;
 }
